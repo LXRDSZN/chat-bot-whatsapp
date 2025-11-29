@@ -153,6 +153,14 @@ async function iniciarBot() {
             return; // No responder, solo ignorar
         }
 
+        // BIENVENIDA para usuarios nuevos O conversaciones reapertas (DEBE IR ANTES DE COMANDOS)
+        if (!welcomeSent[from]) {
+            welcomeSent[from] = true; // Marcar que ya se envió bienvenida
+            conversationsClosed[from] = false; // Abrir nueva conversación
+            await saveConversation(sock.user?.id, from, mensajeBienvenida(senderName), true);
+            return sock.sendMessage(from, { text: mensajeBienvenida(senderName) });
+        }
+
         // COMANDOS
         if (msg.startsWith("/urgente ")) {
             const urgentMsg = texto.substring(9); // Quitar "/urgente "
@@ -440,14 +448,6 @@ Integración con API del clima en desarrollo
 Usa */help* para ver todos los comandos disponibles
 `
             });
-        }
-
-        // BIENVENIDA para usuarios nuevos O conversaciones reapertas
-        if (!welcomeSent[from]) {
-            welcomeSent[from] = true; // Marcar que ya se envió bienvenida
-            conversationsClosed[from] = false; // Abrir nueva conversación
-            await saveConversation(sock.user?.id, from, mensajeBienvenida(senderName), true);
-            return sock.sendMessage(from, { text: mensajeBienvenida(senderName) });
         }
 
         // Si ya se envió bienvenida y el mensaje no es un comando válido, mostrar error
