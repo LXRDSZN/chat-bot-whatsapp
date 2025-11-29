@@ -1,7 +1,7 @@
 // Configuración del bot
 export const CONFIG = {
     // Tu número de WhatsApp (reemplaza con tu número real)
-    ADMIN_NUMBER: "527352980546@s.whatsapp.net", // Tu número configurado
+    ADMIN_NUMBER: "7352980546@s.whatsapp.net", // Tu número admin principal
     
     // Token de bot de Telegram para notificaciones urgentes
     TELEGRAM_BOT_TOKEN: "7524912150:AAEcbmWKxK4PXWUfGPqS0QSs4DRFCHiZ-U4", // Tu bot token

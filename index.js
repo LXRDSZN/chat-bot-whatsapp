@@ -60,11 +60,15 @@ async function iniciarBot() {
         
         // Función para verificar si es admin (múltiples formatos)
         const adminNumbers = [
-            "527352980546@s.whatsapp.net",
-            "5217352980546@s.whatsapp.net", 
-            "7352980546@s.whatsapp.net"
+            "527352980546@s.whatsapp.net",    // Admin principal
+            "5217352980546@s.whatsapp.net",   // Admin con código país
+            "7352980546@s.whatsapp.net",      // Admin sin código país
+            "7352980546@lid",                 // Admin formato lid
         ];
         const isAdmin = adminNumbers.includes(from) || from === CONFIG.ADMIN_NUMBER;
+        
+        // Debug para identificar admin
+        console.log(`📱 Mensaje de: ${from} | Es Admin: ${isAdmin}`);
 
         // ❌ NO RESPONDER EN GRUPOS
         if (from.endsWith("@g.us")) return;
