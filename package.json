@@ -5,13 +5,19 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node start-bot.js",
+    "dev": "node index.js",
+    "reset": "node reset-bot.js",
+    "test": "node test-bot.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
-    "qrcode-terminal": "^0.12.0"
+    "node-fetch": "^3.3.2",
+    "pino": "^10.1.0",
+    "qrcode-terminal": "^0.12.0",
+    "uuid": "^13.0.0"
   }
 }

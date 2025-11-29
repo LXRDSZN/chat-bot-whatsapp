@@ -1,29 +1,45 @@
 import makeWASocket, { useMultiFileAuthState, fetchLatestBaileysVersion } from "@whiskeysockets/baileys";
 import pino from "pino";
 import qrcode from "qrcode-terminal";
+import { CONFIG } from "./config.js";
+import { saveUser, getUser, saveConversation, updateStats, closeConversation } from "./utils/database.js";
+import { sendUrgentNotification, notifyNewUser, notifyBotStatus } from "./utils/notifications.js";
 
-let botActivo = false; // Control del bot
+let botActivo = false; // Control del bot - INICIA DESACTIVADO
+let lastCommandTime = {}; // Control de cooldown por usuario
+let welcomeSent = {}; // Control de mensajes de bienvenida enviados
+let conversationsClosed = {}; // Control de conversaciones cerradas
 
 async function iniciarBot() {
     const { state, saveCreds } = await useMultiFileAuthState("./baileys_auth");
     const { version } = await fetchLatestBaileysVersion();
 
+    console.log("🚀 Iniciando bot...");
+    
     const sock = makeWASocket({
         version,
         auth: state,
         logger: pino({ level: "silent" })
     });
+    
+    console.log("✅ Socket creado, esperando conexión...");
 
     // Mostrar QR
     sock.ev.on("connection.update", (update) => {
-        const { qr, connection } = update;
+        const { qr, connection, lastDisconnect } = update;
         if (qr) {
             console.clear();
             console.log("📲 Escanea este QR para conectar el bot:\n");
             qrcode.generate(qr, { small: true });
         }
-        if (connection === "open") console.log("✅ Bot conectado correctamente.");
-        if (connection === "close") iniciarBot();
+        if (connection === "open") {
+            console.log("✅ Bot conectado correctamente.");
+            console.log(`🛑 Bot está DESACTIVADO. Envía /admin_set y luego /activar para usar.`);
+        }
+        if (connection === "close") {
+            console.log("❌ Conexión cerrada. Reintentando en 3 segundos...");
+            setTimeout(() => iniciarBot(), 3000);
+        }
     });
 
     sock.ev.on("creds.update", saveCreds);
@@ -35,133 +51,595 @@ async function iniciarBot() {
 
         const from = m.key.remoteJid;
         const isMyMsg = m.key.fromMe;
-
-        if (isMyMsg) return;
+        
+        // Función para verificar si es admin (múltiples formatos)
+        const adminNumbers = [
+            "527352980546@s.whatsapp.net",
+            "5217352980546@s.whatsapp.net", 
+            "7352980546@s.whatsapp.net"
+        ];
+        const isAdmin = adminNumbers.includes(from) || from === CONFIG.ADMIN_NUMBER;
 
         // ❌ NO RESPONDER EN GRUPOS
         if (from.endsWith("@g.us")) return;
 
-        const texto =
-            m.message.conversation ||
-            m.message.extendedTextMessage?.text ||
-            "";
+        const texto = m.message.conversation || 
+                     m.message.extendedTextMessage?.text || 
+                     "";
+        
+        // Solo mostrar mensajes de admin para debug
+        if (isAdmin) {
+            console.log(`👑 Admin: ${texto}`);
+        }
 
         const msg = texto.toLowerCase();
-
-        // ACTIVAR
-        if (msg === "!activar") {
-            botActivo = true;
-            return sock.sendMessage(from, { text: "🤖 *Bot ACTIVADO.*" });
+        
+        // Obtener nombre del contacto
+        const senderName = m.pushName || "Usuario";
+        
+        // Guardar conversación (solo si no es del admin)
+        if (!isMyMsg && !isAdmin) {
+            await saveConversation(from, sock.user?.id, texto, false);
         }
 
-        // DESACTIVAR
-        if (msg === "!desactivar") {
-            botActivo = false;
-            return sock.sendMessage(from, { text: "🛑 *Bot DESACTIVADO.*" });
+        // Comando especial para configurar admin
+        if (msg === "/admin_set" && !isMyMsg) {
+            // Actualizar el número de admin en tiempo real
+            CONFIG.ADMIN_NUMBER = from;
+            console.log(`🔧 Nuevo admin configurado: ${from}`);
+            return sock.sendMessage(from, { text: "✅ Te has configurado como administrador. Ahora puedes usar /activar y /desactivar" });
         }
 
-        // Si el bot está desactivado → ignorar
-        if (!botActivo) return;
-
-        // COMANDOS
-        if (msg === "!urgente") {
-            return sock.sendMessage(from, {
-                text: "🚨 *Mensaje urgente recibido.*\nNotificaré a Iván inmediatamente."
+        // Comando especial para verificar tu número
+        if (msg === "/mi_numero" && !isMyMsg) {
+            console.log(`🔍 Número solicitado: ${from}`);
+            return sock.sendMessage(from, { 
+                text: `📱 Tu número de WhatsApp es:\n${from}\n\n${isAdmin ? '✅ Eres admin' : '❌ No eres admin'}` 
             });
         }
 
-        if (msg === "!contacto") {
+        // SOLO EL ADMIN PUEDE ACTIVAR/DESACTIVAR
+        if (isAdmin && (msg === "/activar" || msg === "/desactivar")) {
+            if (msg === "/activar") {
+                botActivo = true;
+                console.log("🤖 Bot ACTIVADO por admin");
+                await notifyBotStatus(true); // Notificar por Telegram
+                return sock.sendMessage(from, { 
+                    text: "✅ **Hxck4io ACTIVADO**\n🟢 El bot ahora responderá a todos los usuarios\n📲 Notificación enviada por Telegram" 
+                });
+            }
+            if (msg === "/desactivar") {
+                botActivo = false;
+                console.log("🛑 Bot DESACTIVADO por admin");
+                await notifyBotStatus(false); // Notificar por Telegram
+                return sock.sendMessage(from, { 
+                    text: "❌ **Hxck4io DESACTIVADO**\n🔴 El bot ignorará mensajes de usuarios\n📲 Notificación enviada por Telegram" 
+                });
+            }
+        }
+
+        // Si es mensaje del admin, solo mostrar en consola (no responder)
+        if (isAdmin) {
+            console.log(`👑 Admin: ${texto}`);
+            return;
+        }
+
+        // Si el bot está desactivado → ignorar otros usuarios
+        if (!botActivo) {
+            console.log(`🛑 Bot desactivado, ignorando mensaje de ${from}`);
+            return;
+        }
+
+        // Si la conversación fue cerrada, no responder hasta nuevo mensaje de bienvenida
+        if (conversationsClosed[from] && !msg.startsWith("/")) {
+            console.log(`🚪 Conversación cerrada para ${from}, ignorando mensaje`);
+            return;
+        }
+        
+        // Actualizar estadísticas y usuario
+        await updateStats();
+        const userData = await saveUser(from, senderName);
+        
+        // Si es usuario nuevo, notificar
+        if (userData.isFirstTime) {
+            await notifyNewUser(senderName, from);
+        }
+
+        // Control de cooldown (más estricto)
+        const now = Date.now();
+        if (lastCommandTime[from] && (now - lastCommandTime[from]) < 3000) { // 3 segundos
+            console.log(`⏱️ Cooldown activo para ${from}`);
+            return; // No responder, solo ignorar
+        }
+
+        // COMANDOS
+        if (msg.startsWith("/urgente ")) {
+            const urgentMsg = texto.substring(9); // Quitar "/urgente "
+            lastCommandTime[from] = now;
+            
+            // Enviar notificación por Telegram
+            await sendUrgentNotification(senderName, from, urgentMsg);
+            await updateStats("urgente");
+            
             return sock.sendMessage(from, {
                 text: `
 ╔══════════════════════════╗
- 🔗 *CONTACTO OFICIAL*
+    🚨 *MENSAJE URGENTE ENVIADO*
 ╚══════════════════════════╝
 
-💻 *GitHub:*  
-https://github.com/lxrdszn
+✅ *Estado:* Notificación enviada exitosamente
+👤 *Para:* Iván Galicia (LXRDSZN)
+📱 *Vía:* Telegram
+⏰ *Hora:* ${new Date().toLocaleString('es-MX')}
 
-💬 *Telegram:*  
-https://t.me/LXRDSZN_GG
+💬 *Tu mensaje:*
+"${urgentMsg}"
 
-🎧 *Discord (Servidor):*  
-https://discord.gg/ZAZvUKqF
+🔔 Iván será notificado inmediatamente
+⚡ Respuesta estimada: 5-15 minutos
 
-⚠️ *Aviso importante:*  
-Las redes *Facebook*, *Instagram* y *WhatsApp personales*  
-📵 _están temporalmente fuera de servicio._
+━━━━━━━━━━━━━━━━━━━━
+⚠️ Usa este comando solo para emergencias
 `
             });
         }
 
-        if (msg.startsWith("!music ")) {
-            const song = msg.replace("!music ", "");
-            return sock.sendMessage(from, {
-                text: `🎵 *Reproduciendo en YouTube (HD)*:\nhttps://www.youtube.com/results?search_query=${encodeURIComponent(song)}`
+        if (msg === "/goodbye" || msg === "/despedida") {
+            lastCommandTime[from] = now;
+            conversationsClosed[from] = true; // Marcar conversación como cerrada
+            await closeConversation(from, sock.user?.id);
+            await updateStats("goodbye");
+            
+            return sock.sendMessage(from, { text: mensajeDespedida(senderName) });
+        }
+
+        if (msg === "/help" || msg === "/ayuda") {
+            lastCommandTime[from] = now;
+            await updateStats("help");
+            return sock.sendMessage(from, { text: mensajeAyuda() });
+        }
+
+        if (msg === "/status" || msg === "/estado") {
+            lastCommandTime[from] = now;
+            await updateStats("status");
+            const userData = await getUser(from);
+            return sock.sendMessage(from, { 
+                text: `
+╔══════════════════════════╗
+    📊 *ESTADO DE TU CUENTA*
+╚══════════════════════════╝
+
+👤 *Usuario:* ${senderName}
+📱 *Número:* ${from}
+📅 *Primer contacto:* ${userData?.firstContact ? new Date(userData.firstContact).toLocaleDateString('es-MX') : 'Hoy'}
+💬 *Mensajes enviados:* ${userData?.messageCount || 1}
+⏰ *Última actividad:* ${new Date().toLocaleString('es-MX')}
+
+🤖 *Bot:* Hxck4io v2.1
+🟢 *Estado:* Activo y funcionando
+👑 *Desarrollador:* Iván Galicia (LXRDSZN)
+
+━━━━━━━━━━━━━━━━━━━━
+Usa */help* para ver todos los comandos
+` 
             });
         }
 
-        if (msg.startsWith("!ia ")) {
-            const prompt = msg.replace("!ia ", "");
+        if (msg === "/contacto") {
+            lastCommandTime[from] = now;
+            await updateStats("contacto");
             return sock.sendMessage(from, {
-                text: `🤖✨ *Imagen solicitada*\n(IA aún no conectada)\n\nPrompt: *${prompt}*`
+                text: `
+╔═══════════════════════════════╗
+  🔗 *CONTACTO OFICIAL LXRDSZN* 🔗
+╚═══════════════════════════════╝
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🌐 *REDES SOCIALES ACTIVAS*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💻 *GitHub Oficial:*
+https://github.com/lxrdszn
+📝 Proyectos, código fuente y contribuciones
+
+💬 *Telegram Personal:*
+https://t.me/LXRDSZN_GG
+⚡ Respuesta rápida y directa
+
+🎧 *Discord Servidor:*
+https://discord.gg/ZAZvUKqF
+🎮 Comunidad, gaming y desarrollo
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ *REDES TEMPORALMENTE INACTIVAS*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📵 *Facebook* - Mantenimiento  
+📵 *Instagram* - Fuera de servicio  
+📵 *WhatsApp Personal* - Solo este bot  
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🚨 *PARA EMERGENCIAS:*
+Usa */urgente <mensaje>* y serás contactado
+directamente por Telegram en minutos.
+
+⏰ *Horarios de respuesta:*
+Lunes a Domingo: 24/7 (Mediante bot)
+Respuesta personal: 8AM - 11PM (MX)
+`
             });
         }
 
-        if (msg === "!info") {
+        if (msg.startsWith("/music ")) {
+            const song = msg.replace("/music ", "");
+            lastCommandTime[from] = now;
+            await updateStats("music");
             return sock.sendMessage(from, {
-                text: `ℹ️ *Información del bot*\nBot: Hxck4io\nDev: Iván Galicia Garcés (LXRDSZN)\nVersión: 1.0\nModo: Activo`
+                text: `
+╔══════════════════════════╗
+    🎵 *REPRODUCTOR YOUTUBE HD*
+╚══════════════════════════╝
+
+🎧 *Buscando:* "${song}"
+📱 *Calidad:* Alta Definición (HD)
+⚡ *Estado:* Redirigiendo...
+
+━━━━━━━━━━━━━━━━━━━━
+🔗 *ENLACE DIRECTO:*
+━━━━━━━━━━━━━━━━━━━━
+
+https://www.youtube.com/results?search_query=${encodeURIComponent(song)}
+
+━━━━━━━━━━━━━━━━━━━━
+💡 *Sugerencia:*
+También puedes buscar: "letra de ${song}"
+para encontrar la letra de la canción
+
+🎵 Disfruta tu música
+`
             });
         }
 
-        // RESPUESTA AUTOMÁTICA
-        return sock.sendMessage(from, { text: mensajeBienvenida() });
+        if (msg.startsWith("/copilot ")) {
+            const prompt = msg.replace("/copilot ", "");
+            lastCommandTime[from] = now;
+            await updateStats("copilot");
+            return sock.sendMessage(from, {
+                text: `
+╔══════════════════════════╗
+    🤖 *GITHUB COPILOT IA*
+╚══════════════════════════╝
+
+💭 *Tu consulta:*
+"${prompt}"
+
+🔄 *Procesando con IA...*
+
+💡 *Respuesta:*
+Esta funcionalidad estará disponible próximamente 
+con integración real de GitHub Copilot AI.
+
+━━━━━━━━━━━━━━━━━━━━
+🚀 *Mientras tanto, puedes:*
+
+• Usar */urgente* para contactar a Iván
+• Visitar el GitHub oficial
+• Unirte al Discord para ayuda técnica
+
+🔗 GitHub: https://github.com/lxrdszn
+`
+            });
+        }
+
+        if (msg === "/meme" || msg === "/random") {
+            lastCommandTime[from] = now;
+            await updateStats("meme");
+            const memes = [
+                "🤖 *Dato random:* Los desarrolladores beben más café que agua",
+                "💻 *Fact:* El 90% del código se escribe después de medianoche",
+                "🐛 *Debug quote:* 'It's not a bug, it's a feature'",
+                "⚡ *Verdad universal:* Ctrl+C, Ctrl+V = 50% del trabajo",
+                "🌙 *Modo desarrollador:* 2AM es la hora más productiva",
+                "🔥 *Pro tip:* Stackoverflow tiene todas las respuestas",
+                "💡 *Realidad:* 'Funciona en mi máquina' - Frase legendaria",
+                "🎯 *Filosofía dev:* Si compile, funciona... hasta que no"
+            ];
+            const randomMeme = memes[Math.floor(Math.random() * memes.length)];
+            
+            return sock.sendMessage(from, {
+                text: `
+╔══════════════════════════╗
+    😄 *HUMOR DEV RANDOM*
+╚══════════════════════════╝
+
+${randomMeme}
+
+━━━━━━━━━━━━━━━━━━━━
+😂 Usa */meme* para otro chiste random
+🤖 Bot: Hxck4io v2.1
+`
+            });
+        }
+
+        if (msg === "/tiempo" || msg.startsWith("/clima ")) {
+            lastCommandTime[from] = now;
+            await updateStats("tiempo");
+            return sock.sendMessage(from, {
+                text: `
+╔══════════════════════════╗
+    🌤️ *INFORMACIÓN DEL CLIMA*
+╚══════════════════════════╝
+
+📍 *Ubicación:* México
+🕐 *Hora local:* ${new Date().toLocaleString('es-MX')}
+
+⚠️ *Próximamente disponible*
+Integración con API del clima en desarrollo
+
+━━━━━━━━━━━━━━━━━━━━
+💡 *Mientras tanto:*
+• Usa Google: "clima México"
+• Apps recomendadas: Weather, AccuWeather
+
+🔗 Para emergencias usa */urgente <mensaje>*
+`
+            });
+        }
+
+        if (msg === "/hora") {
+            lastCommandTime[from] = now;
+            await updateStats("hora");
+            const fecha = new Date().toLocaleString('es-MX', {
+                timeZone: 'America/Mexico_City',
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+            return sock.sendMessage(from, {
+                text: `🕐 *Fecha y hora actual:*\n${fecha} (México)`
+            });
+        }
+
+        if (msg === "/info") {
+            lastCommandTime[from] = now;
+            await updateStats("info");
+            return sock.sendMessage(from, {
+                text: `
+╔══════════════════════════╗
+    ℹ️ *INFORMACIÓN DEL BOT*
+╚══════════════════════════╝
+
+🤖 *Nombre:* Hxck4io
+🏷️ *Versión:* 2.1.0 Enhanced
+👑 *Desarrollador:* Iván Galicia Garcés (LXRDSZN)
+🟢 *Estado:* Activo y funcionando
+
+━━━━━━━━━━━━━━━━━━━━
+📊 *CARACTERÍSTICAS*
+━━━━━━━━━━━━━━━━━━━━
+
+✅ Respuestas automáticas inteligentes
+🚨 Sistema de notificaciones urgentes
+📱 Integración con Telegram
+🎵 Búsqueda de música en YouTube
+💬 Gestión de conversaciones
+📈 Estadísticas de uso
+
+━━━━━━━━━━━━━━━━━━━━
+👤 *USUARIO ACTUAL*
+━━━━━━━━━━━━━━━━━━━━
+
+📝 *Nombre:* ${senderName}
+⏰ *Sesión iniciada:* ${new Date().toLocaleString('es-MX')}
+
+Usa */help* para ver todos los comandos disponibles
+`
+            });
+        }
+
+        // RESPUESTA AUTOMÁTICA (SOLO para usuarios nuevos Y que no hayan recibido bienvenida)
+        if (userData.isFirstTime && !welcomeSent[from]) {
+            welcomeSent[from] = true; // Marcar que ya se envió bienvenida
+            conversationsClosed[from] = false; // Abrir nueva conversación
+            await saveConversation(sock.user?.id, from, mensajeBienvenida(senderName), true);
+            return sock.sendMessage(from, { text: mensajeBienvenida(senderName) });
+        }
+
+        // Si el usuario escribe después de cerrar conversación, reabrir con bienvenida
+        if (conversationsClosed[from] && !welcomeSent[from]) {
+            welcomeSent[from] = true;
+            conversationsClosed[from] = false;
+            await saveConversation(sock.user?.id, from, mensajeBienvenida(senderName), true);
+            return sock.sendMessage(from, { text: mensajeBienvenida(senderName) });
+        }
     });
 }
 
 // BIENVENIDA MEJORADA
-function mensajeBienvenida() {
+function mensajeBienvenida(nombre = "Usuario") {
     return `
-╔════════════════════════════╗
-    🌙✨ *Bienvenido a Hxck4io*  
-╚════════════════════════════╝
+╔═══════════════════════════════╗
+  🌙✨ *¡Hola ${nombre}! Bienvenido a Hxck4io* ✨🌙
+╚═══════════════════════════════╝
 
-🤖 *Asistente automatizado de Iván Galicia Garcés (LXRDSZN)*  
-Iván no se encuentra disponible en este momento,  
-pero puedo ayudarte mientras vuelve.
+🤖 *Asistente Inteligente de Iván Galicia Garcés (LXRDSZN)*
 
-━━━━━━━━━━━━━━━━━━━━
-⚡ *COMANDOS DISPONIBLES*
-━━━━━━━━━━━━━━━━━━━━
+Iván no está disponible en este momento, pero estoy aquí 
+para ayudarte con todo lo que necesites mientras regresa.
 
-1️⃣ *!urgente*  
-Notificaré inmediatamente a Iván.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚡ *COMANDOS PRINCIPALES*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2️⃣ *!contacto*  
-Te mostraré las redes oficiales activas.
+🚨 */urgente <mensaje>*  
+   Notificaré a Iván inmediatamente por Telegram
 
-3️⃣ *!music <nombre>* 🎵  
-Buscaré música en YouTube en alta calidad.
+📞 */contacto*  
+   Todas las redes sociales oficiales
 
-4️⃣ *!ia <descripción>* 🎨  
-Genera una imagen mediante IA (próximamente).
+🎵 */music <canción>*  
+   Búsqueda directa en YouTube HD
 
-5️⃣ *!info*  
-Información del bot.
+🤖 */copilot <pregunta>*  
+   Consultas técnicas con IA (próximamente)
 
-━━━━━━━━━━━━━━━━━━━━
-📡 *REDES OFICIALES*
-━━━━━━━━━━━━━━━━━━━━
+🕐 */hora*  
+   Fecha y hora actual de México
+
+ℹ️ */info*  
+   Información completa del bot
+
+📊 */status*  
+   Estado de tu cuenta y estadísticas
+
+❓ */help*  
+   Lista completa de comandos
+
+🚪 */goodbye*  
+   Finalizar conversación correctamente
+
+😄 */meme* o */random*  
+   Chistes y datos random de developers
+
+🌤️ */clima* o */tiempo*  
+   Información del clima (próximamente)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🌐 *REDES OFICIALES ACTIVAS*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🐙 *GitHub:* https://github.com/lxrdszn
+💬 *Telegram:* https://t.me/LXRDSZN_GG  
+🎧 *Discord:* https://discord.gg/ZAZvUKqF
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ *AVISO IMPORTANTE*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📵 *Facebook*, *Instagram* y *WhatsApp personal*  
+están temporalmente fuera de servicio.
+
+🔔 Para emergencias, usa */urgente <tu mensaje>*  
+📱 Respuesta garantizada en 5-15 minutos
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⌛ Gracias por contactarme  
+Estoy aquí para asistirte 24/7 🖤✨
+`;
+}
+
+// MENSAJE DE DESPEDIDA
+function mensajeDespedida(nombre = "Usuario") {
+    return `
+╔═══════════════════════════════╗
+  👋✨ *¡Hasta pronto, ${nombre}!* ✨👋
+╚═══════════════════════════════╝
+
+🤖 *Conversación finalizada exitosamente*
+
+Ha sido un placer asistirte el día de hoy.  
+Tu conversación ha sido cerrada correctamente.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 *RESUMEN DE LA SESIÓN*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⏰ *Finalizada:* ${new Date().toLocaleString('es-MX')}  
+🤖 *Bot:* Hxck4io v2.1  
+👤 *Usuario:* ${nombre}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔄 *¿QUIERES VOLVER A HABLAR?*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Simplemente envía cualquier mensaje y recibirás  
+una nueva bienvenida para iniciar otra conversación.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🌐 *MANTENTE CONECTADO*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 🐙 GitHub: https://github.com/lxrdszn  
 💬 Telegram: https://t.me/LXRDSZN_GG  
-🎧 Discord: https://discord.gg/ZAZvUKqF  
+🎧 Discord: https://discord.gg/ZAZvUKqF
 
-⚠️ *Aviso:*  
-Facebook, Instagram y WhatsApp personales  
-📵 _están temporalmente fuera de servicio._
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✨ *¡Gracias por usar Hxck4io!* ✨  
+🖤 *Desarrollado con cariño por LXRDSZN*
+`;
+}
 
-━━━━━━━━━━━━━━━━━━━━
-⌛ Gracias por tu mensaje  
-Responderé por Iván hasta que vuelva 🖤
+// MENSAJE DE AYUDA COMPLETO
+function mensajeAyuda() {
+    return `
+╔═══════════════════════════════╗
+  ❓ *AYUDA COMPLETA - Hxck4io* ❓
+╚═══════════════════════════════╝
+
+🤖 *Guía completa de comandos disponibles*
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🚨 *COMANDOS DE EMERGENCIA*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*/urgente <mensaje>*  
+💡 Notifica inmediatamente a Iván por Telegram  
+📝 Ejemplo: /urgente Necesito ayuda con mi proyecto  
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📱 *COMANDOS DE INFORMACIÓN*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*/contacto* - Redes sociales oficiales activas  
+*/info* - Información completa del bot  
+*/status* - Estado de tu cuenta y estadísticas  
+*/hora* - Fecha y hora actual de México  
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎵 *ENTRETENIMIENTO*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*/music <canción>*  
+💡 Busca música en YouTube HD  
+📝 Ejemplo: /music Bad Bunny Monaco
+
+*/meme* o */random*  
+💡 Chistes y datos random para developers  
+
+*/tiempo* o */clima*  
+💡 Información del clima (próximamente)  
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🤖 *COMANDOS TÉCNICOS*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*/copilot <pregunta>*  
+💡 Consultas con IA (próximamente)  
+📝 Ejemplo: /copilot ¿Cómo crear una API en Node.js?  
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔧 *GESTIÓN DE CONVERSACIÓN*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*/help* o */ayuda* - Muestra esta ayuda  
+*/goodbye* o */despedida* - Cierra conversación  
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ *CONSEJOS IMPORTANTES*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+• Cooldown de 3 segundos entre comandos  
+• Usa /urgente solo para emergencias  
+• Para reabrir conversación, envía cualquier mensaje  
+• El bot funciona 24/7 automáticamente  
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+👑 *Bot desarrollado por Iván Galicia (LXRDSZN)*  
+🤖 *Versión 2.1.0 Enhanced*
 `;
 }
 

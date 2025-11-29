@@ -1,0 +1,18 @@
+{
+  "2025-11-27": {
+    "totalMessages": 10,
+    "commandsUsed": {},
+    "uniqueUsers": []
+  },
+  "2025-11-29": {
+    "totalMessages": 26,
+    "commandsUsed": {
+      "status": 1,
+      "help": 1,
+      "meme": 3,
+      "contacto": 1,
+      "urgente": 1
+    },
+    "uniqueUsers": []
+  }
+}

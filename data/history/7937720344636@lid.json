@@ -1,0 +1,66 @@
+[
+  {
+    "ts": 1764197419293,
+    "from": "7937720344636@lid",
+    "text": "Hola",
+    "raw": {
+      "conversation": "Hola",
+      "messageContextInfo": {
+        "deviceListMetadata": {
+          "recipientKeyHash": "s8CaKbR4F9nPow==",
+          "recipientTimestamp": "1764197348"
+        },
+        "deviceListMetadataVersion": 2,
+        "messageSecret": "xoSD9PQSViTSTmW/b+r4JgndAIM+EP3x7gwecEHpOXw="
+      }
+    }
+  },
+  {
+    "ts": 1764197426157,
+    "from": "7937720344636@lid",
+    "text": "Cómo estás",
+    "raw": {
+      "conversation": "Cómo estás",
+      "messageContextInfo": {
+        "deviceListMetadata": {
+          "recipientKeyHash": "s8CaKbR4F9nPow==",
+          "recipientTimestamp": "1764197348"
+        },
+        "deviceListMetadataVersion": 2,
+        "messageSecret": "PSyL7NH24MqqX5YYKMyvxGvYLbvDSVSdKcijfknt2Zo="
+      }
+    }
+  },
+  {
+    "ts": 1764197444701,
+    "from": "7937720344636@lid",
+    "text": "!desactivar",
+    "raw": {
+      "conversation": "!desactivar",
+      "messageContextInfo": {
+        "deviceListMetadata": {
+          "recipientKeyHash": "s8CaKbR4F9nPow==",
+          "recipientTimestamp": "1764197348"
+        },
+        "deviceListMetadataVersion": 2,
+        "messageSecret": "+a37jccrndzyTYvYIovfD2juFrkcqwWKXbMINylUy8s="
+      }
+    }
+  },
+  {
+    "ts": 1764197578539,
+    "from": "7937720344636@lid",
+    "text": ".",
+    "raw": {
+      "conversation": ".",
+      "messageContextInfo": {
+        "deviceListMetadata": {
+          "recipientKeyHash": "s8CaKbR4F9nPow==",
+          "recipientTimestamp": "1764197348"
+        },
+        "deviceListMetadataVersion": 2,
+        "messageSecret": "SHeaJ8CrU5TFJ3t9LKcn7pVHG9xpoGTfyORpnE50UhA="
+      }
+    }
+  }
+]
