@@ -52,9 +52,16 @@ async function iniciarBot() {
         const from = m.key.remoteJid;
         const isMyMsg = m.key.fromMe;
         
-        // ⚠️ IGNORAR MENSAJES DEL PROPIO BOT
-        if (isMyMsg) {
-            console.log(`🤖 Ignorando mi propio mensaje: ${m.message.conversation || 'mensaje especial'}`);
+        const texto = m.message.conversation || 
+                     m.message.extendedTextMessage?.text || 
+                     "";
+        
+        // Debug para entender qué está pasando
+        console.log(`📞 Mensaje recibido - From: ${from} | IsMyMsg: ${isMyMsg} | Texto: "${texto}"`);
+        
+        // ⚠️ IGNORAR SOLO mensajes que realmente son del bot (no respuestas automáticas)
+        if (isMyMsg && from === sock.user?.id) {
+            console.log(`🤖 Ignorando mi propio mensaje del bot`);
             return;
         }
         
@@ -72,10 +79,6 @@ async function iniciarBot() {
 
         // ❌ NO RESPONDER EN GRUPOS
         if (from.endsWith("@g.us")) return;
-
-        const texto = m.message.conversation || 
-                     m.message.extendedTextMessage?.text || 
-                     "";
         
         // Solo mostrar mensajes de admin para debug
         if (isAdmin) {
