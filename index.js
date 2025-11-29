@@ -52,6 +52,12 @@ async function iniciarBot() {
         const from = m.key.remoteJid;
         const isMyMsg = m.key.fromMe;
         
+        // ⚠️ IGNORAR MENSAJES DEL PROPIO BOT
+        if (isMyMsg) {
+            console.log(`🤖 Ignorando mi propio mensaje: ${m.message.conversation || 'mensaje especial'}`);
+            return;
+        }
+        
         // Función para verificar si es admin (múltiples formatos)
         const adminNumbers = [
             "527352980546@s.whatsapp.net",
@@ -155,11 +161,9 @@ async function iniciarBot() {
 
         // BIENVENIDA para usuarios nuevos O conversaciones reapertas (DEBE IR ANTES DE COMANDOS)
         if (!welcomeSent[from]) {
-            console.log(`🎉 Enviando bienvenida a ${from} - welcomeSent[${from}] = false`);
             welcomeSent[from] = true; // Marcar que ya se envió bienvenida
             conversationsClosed[from] = false; // Abrir nueva conversación
             await saveConversation(sock.user?.id, from, mensajeBienvenida(senderName), true);
-            console.log(`✅ Bienvenida enviada, terminando ejecución para ${from}`);
             return sock.sendMessage(from, { text: mensajeBienvenida(senderName) });
         }
 
@@ -454,12 +458,9 @@ Usa */help* para ver todos los comandos disponibles
 
         // Si ya se envió bienvenida y el mensaje no es un comando válido, mostrar error
         if (welcomeSent[from] && (!msg.startsWith("/") || !isValidCommand(msg))) {
-            console.log(`❌ Comando inválido de ${from} - welcomeSent[${from}] = ${welcomeSent[from]}, mensaje: "${msg}"`);
             lastCommandTime[from] = now;
             return sock.sendMessage(from, { text: mensajeComandoInvalido() });
         }
-
-        console.log(`🔚 Fin del procesamiento para ${from} - welcomeSent[${from}] = ${welcomeSent[from]}, mensaje: "${msg}"`);
     });
 }
 
