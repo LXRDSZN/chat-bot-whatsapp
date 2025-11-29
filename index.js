@@ -130,10 +130,11 @@ async function iniciarBot() {
             return;
         }
 
-        // Si la conversación fue cerrada, no responder hasta nuevo mensaje de bienvenida
-        if (conversationsClosed[from] && !msg.startsWith("/")) {
-            console.log(`🚪 Conversación cerrada para ${from}, ignorando mensaje`);
-            return;
+        // Si la conversación fue cerrada, reabrir con cualquier mensaje
+        if (conversationsClosed[from]) {
+            console.log(`🔄 Reabriendo conversación para ${from}`);
+            conversationsClosed[from] = false;
+            welcomeSent[from] = false; // Permitir nueva bienvenida
         }
         
         // Actualizar estadísticas y usuario
@@ -441,20 +442,18 @@ Usa */help* para ver todos los comandos disponibles
             });
         }
 
-        // RESPUESTA AUTOMÁTICA (SOLO para usuarios nuevos Y que no hayan recibido bienvenida)
-        if (userData.isFirstTime && !welcomeSent[from]) {
+        // BIENVENIDA para usuarios nuevos O conversaciones reapertas
+        if ((userData.isFirstTime || !welcomeSent[from]) && !welcomeSent[from]) {
             welcomeSent[from] = true; // Marcar que ya se envió bienvenida
             conversationsClosed[from] = false; // Abrir nueva conversación
             await saveConversation(sock.user?.id, from, mensajeBienvenida(senderName), true);
             return sock.sendMessage(from, { text: mensajeBienvenida(senderName) });
         }
 
-        // Si el usuario escribe después de cerrar conversación, reabrir con bienvenida
-        if (conversationsClosed[from] && !welcomeSent[from]) {
-            welcomeSent[from] = true;
-            conversationsClosed[from] = false;
-            await saveConversation(sock.user?.id, from, mensajeBienvenida(senderName), true);
-            return sock.sendMessage(from, { text: mensajeBienvenida(senderName) });
+        // Si no es un comando válido, mostrar mensaje de comando inválido
+        if (!msg.startsWith("/") || (!isValidCommand(msg))) {
+            lastCommandTime[from] = now;
+            return sock.sendMessage(from, { text: mensajeComandoInvalido() });
         }
     });
 }
@@ -570,6 +569,67 @@ una nueva bienvenida para iniciar otra conversación.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ✨ *¡Gracias por usar Hxck4io!* ✨  
 🖤 *Desarrollado con cariño por LXRDSZN*
+`;
+}
+
+// FUNCIÓN PARA VALIDAR COMANDOS
+function isValidCommand(msg) {
+    const validCommands = [
+        "/urgente", "/goodbye", "/despedida", "/help", "/ayuda", "/status", "/estado",
+        "/contacto", "/music", "/copilot", "/meme", "/random", "/tiempo", "/clima",
+        "/hora", "/info", "/activar", "/desactivar", "/admin_set", "/mi_numero"
+    ];
+    
+    // Verificar comandos exactos
+    if (validCommands.includes(msg)) return true;
+    
+    // Verificar comandos con parámetros
+    if (msg.startsWith("/urgente ") && msg.length > 9) return true;
+    if (msg.startsWith("/music ") && msg.length > 7) return true;
+    if (msg.startsWith("/copilot ") && msg.length > 9) return true;
+    if (msg.startsWith("/clima ") && msg.length > 7) return true;
+    
+    return false;
+}
+
+// MENSAJE PARA COMANDO INVÁLIDO
+function mensajeComandoInvalido() {
+    return `
+╔═══════════════════════════════╗
+  ⚠️ *COMANDO NO RECONOCIDO* ⚠️
+╚═══════════════════════════════╝
+
+❌ El mensaje que enviaste no es un comando válido.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🤖 *COMANDOS PRINCIPALES DISPONIBLES*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🚨 */urgente <mensaje>* - Notificación inmediata
+📞 */contacto* - Redes sociales oficiales  
+🎵 */music <canción>* - Buscar música
+📊 */status* - Estado de tu cuenta
+ℹ️ */info* - Información del bot
+🕐 */hora* - Fecha y hora actual
+😄 */meme* - Chiste random
+❓ */help* - Lista completa de comandos
+🚪 */goodbye* - Cerrar conversación
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💡 *EJEMPLOS DE USO CORRECTO*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ /urgente Necesito ayuda urgente
+✅ /music Bad Bunny Monaco  
+✅ /help
+✅ /contacto
+
+❌ Hola (texto libre no es válido)
+❌ /comando_inexistente
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚡ *Usa /help para ver todos los comandos*
+🤖 *Bot Hxck4io v2.1.0*
 `;
 }
 
