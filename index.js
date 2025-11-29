@@ -443,7 +443,7 @@ Usa */help* para ver todos los comandos disponibles
         }
 
         // BIENVENIDA para usuarios nuevos O conversaciones reapertas
-        if ((userData.isFirstTime || !welcomeSent[from]) && !welcomeSent[from]) {
+        if (!welcomeSent[from]) {
             welcomeSent[from] = true; // Marcar que ya se envió bienvenida
             conversationsClosed[from] = false; // Abrir nueva conversación
             await saveConversation(sock.user?.id, from, mensajeBienvenida(senderName), true);
