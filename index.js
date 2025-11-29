@@ -450,8 +450,8 @@ Usa */help* para ver todos los comandos disponibles
             return sock.sendMessage(from, { text: mensajeBienvenida(senderName) });
         }
 
-        // Si no es un comando válido, mostrar mensaje de comando inválido
-        if (!msg.startsWith("/") || (!isValidCommand(msg))) {
+        // Si ya se envió bienvenida y el mensaje no es un comando válido, mostrar error
+        if (welcomeSent[from] && (!msg.startsWith("/") || !isValidCommand(msg))) {
             lastCommandTime[from] = now;
             return sock.sendMessage(from, { text: mensajeComandoInvalido() });
         }
