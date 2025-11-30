@@ -59,12 +59,6 @@ async function iniciarBot() {
         // Debug para entender qué está pasando
         console.log(`📞 Mensaje recibido - From: ${from} | IsMyMsg: ${isMyMsg} | Texto: "${texto}"`);
         
-        // ⚠️ IGNORAR mensajes enviados por el bot (isMyMsg = true)
-        if (isMyMsg) {
-            console.log(`🤖 Ignorando mensaje enviado por el bot`);
-            return;
-        }
-        
         // Función para verificar si es admin (múltiples formatos)
         const adminNumbers = [
             "527352980546@s.whatsapp.net",    // Admin principal
@@ -73,6 +67,21 @@ async function iniciarBot() {
             "7352980546@lid",                 // Admin formato lid
         ];
         const isAdmin = adminNumbers.includes(from) || from === CONFIG.ADMIN_NUMBER;
+        
+        // ⚠️ IGNORAR mensajes del bot EXCEPTO si son comandos del admin
+        if (isMyMsg && !isAdmin) {
+            console.log(`🤖 Ignorando mensaje automático del bot`);
+            return;
+        }
+        
+        // Si es mensaje del bot pero del admin, permitir procesamiento de comandos de control
+        if (isMyMsg && isAdmin) {
+            const msg = texto.toLowerCase();
+            if (msg !== "/activar" && msg !== "/desactivar" && msg !== "/admin_set" && msg !== "/mi_numero") {
+                console.log(`🤖 Ignorando mensaje automático del admin`);
+                return;
+            }
+        }
         
         // Debug para identificar admin
         console.log(`📱 Mensaje de: ${from} | Es Admin: ${isAdmin}`);
