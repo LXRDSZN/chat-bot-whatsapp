@@ -59,9 +59,9 @@ async function iniciarBot() {
         // Debug para entender qué está pasando
         console.log(`📞 Mensaje recibido - From: ${from} | IsMyMsg: ${isMyMsg} | Texto: "${texto}"`);
         
-        // ⚠️ IGNORAR SOLO mensajes que realmente son del bot (no respuestas automáticas)
-        if (isMyMsg && from === sock.user?.id) {
-            console.log(`🤖 Ignorando mi propio mensaje del bot`);
+        // ⚠️ IGNORAR mensajes enviados por el bot (isMyMsg = true)
+        if (isMyMsg) {
+            console.log(`🤖 Ignorando mensaje enviado por el bot`);
             return;
         }
         
@@ -90,13 +90,13 @@ async function iniciarBot() {
         // Obtener nombre del contacto
         const senderName = m.pushName || "Usuario";
         
-        // Guardar conversación (solo si no es del admin)
-        if (!isMyMsg && !isAdmin) {
+        // Guardar conversación (solo si no es del admin y no es mensaje del bot)
+        if (!isAdmin) {
             await saveConversation(from, sock.user?.id, texto, false);
         }
 
         // Comando especial para configurar admin
-        if (msg === "/admin_set" && !isMyMsg) {
+        if (msg === "/admin_set") {
             // Actualizar el número de admin en tiempo real
             CONFIG.ADMIN_NUMBER = from;
             console.log(`🔧 Nuevo admin configurado: ${from}`);
@@ -104,7 +104,7 @@ async function iniciarBot() {
         }
 
         // Comando especial para verificar tu número
-        if (msg === "/mi_numero" && !isMyMsg) {
+        if (msg === "/mi_numero") {
             console.log(`🔍 Número solicitado: ${from}`);
             return sock.sendMessage(from, { 
                 text: `📱 Tu número de WhatsApp es:\n${from}\n\n${isAdmin ? '✅ Eres admin' : '❌ No eres admin'}` 
@@ -131,8 +131,8 @@ async function iniciarBot() {
             }
         }
 
-        // Si es mensaje del admin, solo mostrar en consola (no responder)
-        if (isAdmin) {
+        // Si es mensaje del admin que NO son comandos de control, solo mostrar en consola (no responder)
+        if (isAdmin && msg !== "/activar" && msg !== "/desactivar") {
             console.log(`👑 Admin: ${texto}`);
             return;
         }
@@ -170,8 +170,9 @@ async function iniciarBot() {
         if (!welcomeSent[from]) {
             welcomeSent[from] = true; // Marcar que ya se envió bienvenida
             conversationsClosed[from] = false; // Abrir nueva conversación
-            await saveConversation(sock.user?.id, from, mensajeBienvenida(senderName), true);
-            return sock.sendMessage(from, { text: mensajeBienvenida(senderName) });
+            const welcomeMsg = mensajeBienvenida(senderName);
+            await saveConversation(sock.user?.id, from, welcomeMsg, true);
+            return sock.sendMessage(from, { text: welcomeMsg });
         }
 
         // COMANDOS
