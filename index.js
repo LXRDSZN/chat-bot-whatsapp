@@ -34,7 +34,7 @@ async function iniciarBot() {
         }
         if (connection === "open") {
             console.log("✅ Bot conectado correctamente.");
-            console.log(`🛑 Bot está DESACTIVADO. Envía /admin_set y luego /activar para usar.`);
+            console.log(`🛑 Bot está DESACTIVADO. Solo el admin (197353898250346) puede usar /activar para encenderlo.`);
         }
         if (connection === "close") {
             console.log("❌ Conexión cerrada. Reintentando en 3 segundos...");
@@ -59,69 +59,16 @@ async function iniciarBot() {
         // Debug para entender qué está pasando
         console.log(`📞 Mensaje recibido - From: ${from} | IsMyMsg: ${isMyMsg} | Texto: "${texto}"`);
         
-        // Función para verificar si es admin (múltiples formatos)
-        const adminNumbers = [
-            "527352980546@s.whatsapp.net",    // Admin principal
-            "5217352980546@s.whatsapp.net",   // Admin con código país
-            "7352980546@s.whatsapp.net",      // Admin sin código país
-            "7352980546@lid",                 // Admin formato lid
-        ];
-        const isAdmin = adminNumbers.includes(from) || from === CONFIG.ADMIN_NUMBER;
-        
-        // ⚠️ IGNORAR mensajes del bot EXCEPTO si son comandos del admin
-        if (isMyMsg && !isAdmin) {
-            console.log(`🤖 Ignorando mensaje automático del bot`);
-            return;
-        }
-        
-        // Si es mensaje del bot pero del admin, permitir procesamiento de comandos de control
-        if (isMyMsg && isAdmin) {
-            const msg = texto.toLowerCase();
-            if (msg !== "/activar" && msg !== "/desactivar" && msg !== "/admin_set" && msg !== "/mi_numero") {
-                console.log(`🤖 Ignorando mensaje automático del admin`);
-                return;
-            }
-        }
-        
-        // Debug para identificar admin
-        console.log(`📱 Mensaje de: ${from} | Es Admin: ${isAdmin}`);
-
-        // ❌ NO RESPONDER EN GRUPOS
-        if (from.endsWith("@g.us")) return;
-        
-        // Solo mostrar mensajes de admin para debug
-        if (isAdmin) {
-            console.log(`👑 Admin: ${texto}`);
-        }
-
+        // Función para verificar si es admin - usar el número real del log
+        const isAdmin = from.includes("197353898250346");
         const msg = texto.toLowerCase();
         
-        // Obtener nombre del contacto
-        const senderName = m.pushName || "Usuario";
+        // DEBUG ESPECÍFICO PARA ADMIN
+        console.log(`🔍 DEBUG ADMIN: from="${from}" | contiene 197353898250346: ${from.includes("197353898250346")} | isAdmin: ${isAdmin} | msg: "${msg}"`);
         
-        // Guardar conversación (solo si no es del admin y no es mensaje del bot)
-        if (!isAdmin) {
-            await saveConversation(from, sock.user?.id, texto, false);
-        }
-
-        // Comando especial para configurar admin
-        if (msg === "/admin_set") {
-            // Actualizar el número de admin en tiempo real
-            CONFIG.ADMIN_NUMBER = from;
-            console.log(`🔧 Nuevo admin configurado: ${from}`);
-            return sock.sendMessage(from, { text: "✅ Te has configurado como administrador. Ahora puedes usar /activar y /desactivar" });
-        }
-
-        // Comando especial para verificar tu número
-        if (msg === "/mi_numero") {
-            console.log(`🔍 Número solicitado: ${from}`);
-            return sock.sendMessage(from, { 
-                text: `📱 Tu número de WhatsApp es:\n${from}\n\n${isAdmin ? '✅ Eres admin' : '❌ No eres admin'}` 
-            });
-        }
-
-        // SOLO EL ADMIN PUEDE ACTIVAR/DESACTIVAR
+        // VERIFICAR COMANDOS DE ADMIN PRIMERO (antes que cualquier filtro)
         if (isAdmin && (msg === "/activar" || msg === "/desactivar")) {
+            console.log(`👑 COMANDO DE ADMIN RECIBIDO: ${msg} desde ${from}`);
             if (msg === "/activar") {
                 botActivo = true;
                 console.log("🤖 Bot ACTIVADO por admin");
@@ -139,6 +86,41 @@ async function iniciarBot() {
                 });
             }
         }
+        
+        // ⚠️ IGNORAR todos los mensajes propios del bot
+        if (isMyMsg) {
+            console.log(`🤖 Ignorando mensaje automático del bot`);
+            return;
+        }
+        
+        // Debug para identificar admin
+        console.log(`📱 Mensaje de: ${from} | Es Admin: ${isAdmin}`);
+
+        // ❌ NO RESPONDER EN GRUPOS
+        if (from.endsWith("@g.us")) return;
+        
+        // Solo mostrar mensajes de admin para debug
+        if (isAdmin) {
+            console.log(`👑 Admin: ${texto}`);
+        }
+ 
+        // Obtener nombre del contacto
+        const senderName = m.pushName || "Usuario";
+        
+        // Guardar conversación (solo si no es del admin y no es mensaje del bot)
+        if (!isAdmin) {
+            await saveConversation(from, sock.user?.id, texto, false);
+        }
+
+        // Comando especial para verificar tu número
+        if (msg === "/mi_numero") {
+            console.log(`🔍 Número solicitado: ${from}`);
+            return sock.sendMessage(from, { 
+                text: `📱 Tu número de WhatsApp es:\n${from}\n\n${isAdmin ? '✅ Eres admin' : '❌ No eres admin'}` 
+            });
+        }
+
+
 
         // Si es mensaje del admin que NO son comandos de control, solo mostrar en consola (no responder)
         if (isAdmin && msg !== "/activar" && msg !== "/desactivar") {
